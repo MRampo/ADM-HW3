@@ -2153,3 +2153,5 @@ TSV Files/location_6.tvs
 TSV Files/location_7.tvs
 TSV Files/location_8.tvs
 TSV Files/location_9.tvs
+*.html
+*.tvs
