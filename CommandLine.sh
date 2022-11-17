@@ -1,7 +1,7 @@
 words=(Italy Spain France England United\ States)
 for n in "${words[@]}";
 do :
-
+    
     count=$(cut -f 3,4,8 all_tsv.tsv | grep "$n" | wc -l)
     
     sum=$(cut -f 3,4,8 all_tsv.tsv | grep "$n" | awk '{sum+=$1 } END{print (sum)}')
