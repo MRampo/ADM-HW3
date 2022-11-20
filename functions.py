@@ -4,28 +4,46 @@
 # even in case of premature termination.
 # This simply means that the only thing that will have to be passed to the function are the starting and ending points
 
-
-import csv
-import datetime
-import glob
-import os
-
-#module used to save dictionary files
-import pickle
-
-import time
+#modules used for data scraping
 from bs4 import BeautifulSoup as bs
-import pandas as pd
 import requests as rq
 from tqdm import tqdm 
 
-#The modules used to clean the text
+import json
+import os
+import datetime
+import re
+import glob
+import csv
+import time
+import pandas as pd
+from nltk.stem import *
+from collections import Counter
+from functools import reduce
+import numpy as np
+
+#Used to clean the data
 import nltk
 from nltk.corpus import stopwords
 nltk.download('stopwords')
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 from nltk import tokenize
+
+#Modules used to plot the graph
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+#import datatable as dt   
+import csv
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+#To read and store dictionary
+import pickle
+
+#our functions used in the files
+from functions import *
 
 
 def getLinks(start: int, finish: int) -> list:
@@ -301,8 +319,6 @@ def remove_numbers(string) -> list:
             string[num] = ''.join((x for x in string[num] if not x.isdigit()))
     return string
 
-
-
 def cleaning(string) -> list:
     #I apply all the function for cleaning the string
     string = string.lower()
@@ -323,3 +339,194 @@ def read_dic(name):
     with open(f'./Dictionary/{name}.pkl', 'rb') as f:
         loaded_dict = pickle.load(f)
         return loaded_dict
+
+def findTop(data, nameCol):
+    d = {}
+    n = len(data)
+
+    for i in range(n):
+        l = []
+        l = data.iloc[i][nameCol]
+        l = str(l)
+        l = l.split(',')
+        for j in l:
+            if not j in d:
+                d[j] = 1
+            else:
+                d[j] = d[j] + 1
+    top_editors = sorted(d.items(), key=lambda x: x[1], reverse = True)
+
+    keys = []
+    values = []
+    for i in range(10):
+        keys.append(top_editors[i][0])
+        values.append(top_editors[i][1])
+    return keys, values
+
+def query(list, vocabulary, inverted_index):
+    # s is the set of the documents_id that contain the first word in the query
+    s = inverted_index[vocabulary[list[0]]]
+    # starting from the second word in the query till the last we'll intersect the set s with the set of all the documents_id 
+    # that contain the fixed word 
+    for x in range(1, len(list)):
+        s.intersection(inverted_index[vocabulary[list[x]]])
+    return s
+
+#Function to determine the cosine similarity 
+def cosine_score(res_query,df,qv):
+    # first we create an empty list in which store all the cosine similarity scores
+    scores = []
+    # for every place in res_query we compute the cosine similarity as shown before and append that value in the list scores
+    for place in res_query.index:
+        scores.append(np.dot(np.array(df.iloc[place]).reshape(1,df.shape[1])[0],qv[0]) / (np.linalg.norm(np.array(df.iloc[place]).reshape(1,df.shape[1])[0])*np.linalg.norm(qv[0]) ))
+    return scores
+
+#The function to extecute the point 2.2
+def query_tfidf(data: pd.DataFrame, nameCol: str, q: str, vocabulary: dict, inverted_index) -> pd.DataFrame:
+    #We need to clean the query
+    q = cleaning(q) 
+
+    # now q is a list that contains the cleaned word of the input query
+    vectorizer = TfidfVectorizer(use_idf=True, analyzer='word',sublinear_tf=True)
+    x =vectorizer.fit_transform(data[nameCol]).todense()
+    df = pd.DataFrame(x, columns = vectorizer.get_feature_names_out())
+    qv = vectorizer.transform([" ".join(q)]).todense()
+    
+    # since later we'll need to compute the norm of this vector, we create an np array with the tfidf of the query
+    qv = np.array(qv[0,:])
+    s = query(q,vocabulary,inverted_index)
+    
+    # res_query will be our new dataframe such that contains only the places with description that 
+    # contains all the words in the query
+    res_query = data[data['placeName'].isin(list(s))]
+    
+    # scores will be a list with all the cosine similarityy score of a document in nameCol with respect to the query
+    scores = cosine_score(res_query,df,qv)
+    res_query.insert(res_query.shape[1], f"CS_{nameCol}",scores )   
+    
+    # sort res_query by the cosine similarity scores
+    res_query = res_query.sort_values(by=[f"CS_{nameCol}"],ascending=False)
+
+    return res_query
+
+def new_score(res_query,n,k,m):
+    scores = []
+    if n == 1:
+        by = res_query['numPeopleVisited']
+    else:
+        by = res_query['numPeopleWant']
+    max_value = by.max()
+    for i in range(res_query.shape[0]):
+        scores.append(round(by[i]/max_value,4))
+    res_query.insert(res_query.shape[1], "scores", scores)
+    if m == 1:
+        res_query = res_query.sort_values(by=['scores'],ascending=False)
+    else:
+        res_query = res_query.sort_values(by=['scores'],ascending=True)
+        
+    return res_query
+
+def query_function(data: pd.DataFrame , nameCol: str,q: str) -> pd.DataFrame:
+    dic1 = createFirstDic(data, nameCol)
+    dic2 = createSecondDic(data, dic1, nameCol)
+    s = query(q,dic1,dic2)
+    return s
+
+def complex_query(data: pd.DataFrame):
+    boolDesc = False
+    boolName = False
+    boolAdress = False
+
+    set_list = []
+    q_list = []
+    q1 = input('Insert the query that you want to find in the places descriptions: [if you dont want to search for anything just press Enter]')
+    if q1 != "":
+        boolDesc = True
+        q1_clean = cleaning(q1)
+        set_list.append(query_function(data, "cleanDesc", q1_clean))
+        q_list.append(q1_clean)
+    else:
+        q_list.append("")
+
+    q2 = input('Insert the query that you want to find in the Names: [if you dont want to search for anything just press Enter]')
+    if q2 != "":
+        boolName = True
+        q2_clean = cleaning(q2)
+        set_list.append(query_function(data, "cleanName", q2_clean))
+        q_list.append(q2_clean)
+    else:
+        q_list.append("")
+
+
+    q3 = input('Insert the query that you want to find in the Adress: [if you dont want to search for anything just press Enter]')
+    if q3 != "":
+        boolAdress = True
+        q3_clean = cleaning(q3)
+        set_list.append(query_function(data, "cleanAdress", q3_clean))
+        q_list.append(q3_clean)
+    else:
+        q_list.append("")
+
+
+    bool_arr = [boolDesc, boolName, boolAdress]
+    return set_list, bool_arr, q_list
+
+def find_df_qv(data,q,colName):
+    vectorizer = TfidfVectorizer(use_idf=True, analyzer='word',sublinear_tf=True)
+    x =vectorizer.fit_transform(data[colName]).todense()
+    df = pd.DataFrame(x, columns = vectorizer.get_feature_names_out())
+    qv = vectorizer.transform([" ".join(q)]).todense()
+    return df, qv
+
+
+def query_tfidf_bonus(data: pd.DataFrame) -> pd.DataFrame:
+    
+    set_list, bool_arr, q_list = complex_query(data)
+
+    dic = {0: "cleanDesc", 1: "cleanName", 2: "cleanAdress"}
+
+    #create an interesction of all the query
+    s = set()
+    if len(set_list) > 0:   
+        s = set_list[0]
+        for x in set_list:
+            s = s.intersection(x)
+
+    # res_query will be our new dataframe such that contains only the places with description that 
+    # contains all the words in the query
+    res_query = data[data['placeName'].isin(s)]
+
+    for bool in range(len(bool_arr)):
+        if bool_arr[bool] == True:
+            df, qv = find_df_qv(data, q_list[bool], dic[bool])
+
+            # since later we'll need to compute the norm of this vector, we create an np array with the tfidf of the query
+            qv = np.array(qv[0,:])
+
+            scores = cosine_score(res_query,df,qv)    
+            res_query.insert(res_query.shape[1], f"CS_{dic[bool]}",scores ) 
+
+    return res_query
+
+def define_final_score(resComplexQuery):
+    resComplexQuery["final_score"] = resComplexQuery.CS_cleanDesc* 0.15 + resComplexQuery.CS_cleanName * 0.50 + resComplexQuery.CS_cleanAdress* 0.35
+    return resComplexQuery
+
+def filterFinalQuery(data: pd.DataFrame) -> pd.DataFrame :
+    resComplexQuery = query_tfidf_bonus(data)
+    resComplexQuery_fs = define_final_score(resComplexQuery)
+    usernameList = input("Write the names of the users that worked on a page. [Separated by spaces]").split()
+    tags = input("Write the names of the tags that you want to find in a page. [Separated by spaces]").split()
+    upperBound = input("Write the maximum number of people that visited a certain location")
+    lowerBound = input("Write the minimum number of people that visited a certain location")
+    if not usernameList:
+        resComplexQuery_fs = filterUsername(usernameList, resComplexQuery)
+    if not tags:
+        resComplexQuery_fs = filterTags(tags, resComplexQuery_fs)
+    if upperBound and lowerBound:
+        resComplexQuery_fs = filterNumPeople(int(upperBound), int(lowerBound))
+    elif upperBound:
+        resComplexQuery_fs = filterNumPeople(int(upperBound))
+    elif (lowerBound):
+        resComplexQuery_fs = filterNumPeople(lowerbound = int(lowerBound))
+    return resComplexQuery_fs
