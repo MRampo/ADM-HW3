@@ -11,4 +11,4 @@ This is the **repository** with the final work of our team.
 
 ## In the repository there are the following files:
 
-..* __`README.md`__:
+1. __`README.md`__:
