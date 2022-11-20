@@ -508,8 +508,22 @@ def query_tfidf_bonus(data: pd.DataFrame) -> pd.DataFrame:
 
     return res_query
 
-def define_final_score(resComplexQuery):
-    resComplexQuery["final_score"] = resComplexQuery.CS_cleanDesc* 0.15 + resComplexQuery.CS_cleanName * 0.50 + resComplexQuery.CS_cleanAdress* 0.35
+def define_final_score(resComplexQuery: pd.DataFrame):
+    numberOfQuery = 0
+    scores = np.zeros(resComplexQuery.shape[0])
+    if 'CS_cleanDesc' in resComplexQuery.columns:
+        numberOfQuery += 1
+        scores += np.array(resComplexQuery.CS_cleanDesc)
+    
+    if 'CS_cleanName' in resComplexQuery.columns:
+        numberOfQuery += 1
+        scores += np.array(resComplexQuery.CS_cleanName)
+    
+    if 'CS_cleanAdress' in resComplexQuery.columns:
+        numberOfQuery += 1
+        scores += np.array(resComplexQuery.CS_cleanAdress)
+
+    resComplexQuery.insert(resComplexQuery.shape[1], "final_score", scores/numberOfQuery)
     return resComplexQuery
 
 def filterFinalQuery(data: pd.DataFrame) -> pd.DataFrame :
@@ -520,13 +534,71 @@ def filterFinalQuery(data: pd.DataFrame) -> pd.DataFrame :
     upperBound = input("Write the maximum number of people that visited a certain location")
     lowerBound = input("Write the minimum number of people that visited a certain location")
     if not usernameList:
-        resComplexQuery_fs = filterUsername(usernameList, resComplexQuery)
+        resComplexQuery_fs = filterUsername(usernameList, resComplexQuery_fs)
     if not tags:
         resComplexQuery_fs = filterTags(tags, resComplexQuery_fs)
     if upperBound and lowerBound:
-        resComplexQuery_fs = filterNumPeople(int(upperBound), int(lowerBound))
+        resComplexQuery_fs = filterNumPeople(resComplexQuery_fs, int(upperBound), int(lowerBound))
     elif upperBound:
-        resComplexQuery_fs = filterNumPeople(int(upperBound))
+        resComplexQuery_fs = filterNumPeople(resComplexQuery_fs, int(upperBound))
     elif (lowerBound):
-        resComplexQuery_fs = filterNumPeople(lowerbound = int(lowerBound))
+        resComplexQuery_fs = filterNumPeople(resComplexQuery_fs, lowerbound = int(lowerBound))
     return resComplexQuery_fs
+
+
+def createFirstDic(data: pd.DataFrame, nameCol: str) -> dict:
+    # first we create an empty dictionary
+    dic = {}
+    value = 1
+    for description in tqdm(data[nameCol]):
+        for word in description.split():
+            # if the word is already in the dictionary keys this mean that it has already even a corresponding number and
+            # so we can skip to the next word in the fixed description
+            if word in dic.keys():
+                continue
+            # otherwise we create a new key named 'word' with value = value and then we upgrade value
+            else:
+                dic[word] = value
+                value += 1
+    return dic
+
+
+def createSecondDic(data: pd.DataFrame, vocabulary: dict, nameCol: str) -> dict:
+    dic = {}
+    # a will keep track of the row index of the data
+    a = 0
+    # we take one description at a time from the column 'cleanDesc'
+    for description in tqdm(data[nameCol]):
+        # for every word in the fixed description 
+        for word in description.split():
+            # if the corresponding integer of the word is already in the keys of the inverted_index then we need to
+            # add the document_id of the fixed description to the already existing set
+            if vocabulary[word] in dic.keys():
+                dic[vocabulary[word]].add(data.placeName[a])
+            # otherwise we create a new key named as the corresponding integer of the word with value equal to a set that 
+            # contains the document_id of the fixed description
+            else:
+                dic[vocabulary[word]] = set([data.placeName[a]])
+        a += 1
+    return dic
+
+
+def filterUsername(list: list, data: pd.DataFrame) -> pd.DataFrame:
+    if list:
+        return data
+    else:
+        filtered_data = data[data["placeEditors"].str.contains("(?=.*" + ")(?=.*".join(list) + ")")]
+        return filtered_data
+
+def filterTags(list: list, data: pd.DataFrame) -> pd.DataFrame:
+    if list:
+        return data
+    else:
+        filtered_data = data[data["placeTags"].str.contains("(?=.*" + ")(?=.*".join(list) + ")")]
+        return filtered_data
+
+
+
+def filterNumPeople(data: pd.DataFrame, upperbound = 10000000 , lowerbound = 0) -> pd.DataFrame:
+    filtered_data =  data.query(f'{lowerbound} < numPeopleVisited < {upperbound}')
+    return filtered_data
