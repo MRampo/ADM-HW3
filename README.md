@@ -13,3 +13,6 @@ This is the **repository** with the final work of our team.
 
 1. __`README.md`__:
                     > this file that you are reading.
+2. __`hw3.ipynb`__: 
+                    > In this file there is our final work with all the answers to the questions.
+                    
